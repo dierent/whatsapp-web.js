@@ -35,7 +35,7 @@ class Message extends Base {
          * ID that represents the message
          * @type {object}
          */
-        this.id = data.id;
+        this.id = Base._normalizeId(data.id);
 
         /**
          * ACK status for the message
@@ -75,7 +75,7 @@ class Message extends Base {
          */
         this.from =
             typeof data.from === 'object' && data.from !== null
-                ? data.from._serialized
+                ? Base._getSerializedId(data.from)
                 : data.from;
 
         /**
@@ -87,7 +87,7 @@ class Message extends Base {
          */
         this.to =
             typeof data.to === 'object' && data.to !== null
-                ? data.to._serialized
+                ? Base._getSerializedId(data.to)
                 : data.to;
 
         /**
@@ -96,7 +96,7 @@ class Message extends Base {
          */
         this.author =
             typeof data.author === 'object' && data.author !== null
-                ? data.author._serialized
+                ? Base._getSerializedId(data.author)
                 : data.author;
 
         /**
@@ -211,13 +211,13 @@ class Message extends Base {
                       groupName: data.inviteGrpName,
                       fromId:
                           typeof data.from === 'object' &&
-                          '_serialized' in data.from
-                              ? data.from._serialized
+                          Base._getSerializedId(data.from)
+                              ? Base._getSerializedId(data.from)
                               : data.from,
                       toId:
                           typeof data.to === 'object' &&
-                          '_serialized' in data.to
-                              ? data.to._serialized
+                          Base._getSerializedId(data.to)
+                              ? Base._getSerializedId(data.to)
                               : data.to,
                   }
                 : undefined;
@@ -356,13 +356,7 @@ class Message extends Base {
      */
     async reload() {
         const newData = await this.client.pupPage.evaluate(async (msgId) => {
-            const msg =
-                window.require('WAWebCollections').Msg.get(msgId) ||
-                (
-                    await window
-                        .require('WAWebCollections')
-                        .Msg.getMessagesById([msgId])
-                )?.messages?.[0];
+            const msg = await window.WWebJS.getMsgById(msgId);
             if (!msg) return null;
             return window.WWebJS.getMessageModel(msg);
         }, this.id._serialized);
@@ -406,7 +400,7 @@ class Message extends Base {
             this.mentionedIds.map(
                 async (m) =>
                     await this.client.getContactById(
-                        typeof m === 'string' ? m : m._serialized,
+                        typeof m === 'string' ? m : Base._getSerializedId(m),
                     ),
             ),
         );
@@ -420,7 +414,9 @@ class Message extends Base {
         return await Promise.all(
             this.groupMentions.map(
                 async (m) =>
-                    await this.client.getChatById(m.groupJid._serialized),
+                    await this.client.getChatById(
+                        Base._getSerializedId(m.groupJid),
+                    ),
             ),
         );
     }
@@ -433,20 +429,16 @@ class Message extends Base {
         if (!this.hasQuotedMsg) return undefined;
 
         const quotedMsg = await this.client.pupPage.evaluate(async (msgId) => {
-            const msg =
-                window.require('WAWebCollections').Msg.get(msgId) ||
-                (
-                    await window
-                        .require('WAWebCollections')
-                        .Msg.getMessagesById([msgId])
-                )?.messages?.[0];
+            const msg = await window.WWebJS.getMsgById(msgId);
+            if (!msg) return null;
             const quotedMsg = window
                 .require('WAWebQuotedMsgModelUtils')
                 .getQuotedMsgObj(msg);
+            if (!quotedMsg) return null;
             return window.WWebJS.getMessageModel(quotedMsg);
         }, this.id._serialized);
 
-        return new Message(this.client, quotedMsg);
+        return quotedMsg ? new Message(this.client, quotedMsg) : undefined;
     }
 
     /**
@@ -559,13 +551,12 @@ class Message extends Base {
         try {
             metadata = await blobHandle.evaluate((blob, msgId) => {
                 if (!blob) return null;
-                const msg = window.require('WAWebCollections').Msg.get(msgId);
-                return {
+                return window.WWebJS.getMsgById(msgId).then((msg) => ({
                     blobSize: blob.size,
                     mimetype: msg?.mimetype,
                     filename: msg?.filename,
                     filesize: msg?.size,
-                };
+                }));
             }, this.id._serialized);
         } catch (err) {
             await blobHandle.dispose().catch(() => {});
@@ -607,13 +598,8 @@ class Message extends Base {
     async delete(everyone, clearMedia = true) {
         await this.client.pupPage.evaluate(
             async (msgId, everyone, clearMedia) => {
-                const msg =
-                    window.require('WAWebCollections').Msg.get(msgId) ||
-                    (
-                        await window
-                            .require('WAWebCollections')
-                            .Msg.getMessagesById([msgId])
-                    )?.messages?.[0];
+                const msg = await window.WWebJS.getMsgById(msgId);
+                if (!msg) return;
                 const chat =
                     window
                         .require('WAWebCollections')
@@ -672,13 +658,8 @@ class Message extends Base {
      */
     async star() {
         await this.client.pupPage.evaluate(async (msgId) => {
-            const msg =
-                window.require('WAWebCollections').Msg.get(msgId) ||
-                (
-                    await window
-                        .require('WAWebCollections')
-                        .Msg.getMessagesById([msgId])
-                )?.messages?.[0];
+            const msg = await window.WWebJS.getMsgById(msgId);
+            if (!msg) return;
             if (window.require('WAWebMsgActionCapability').canStarMsg(msg)) {
                 let chat = await window
                     .require('WAWebCollections')
@@ -695,13 +676,8 @@ class Message extends Base {
      */
     async unstar() {
         await this.client.pupPage.evaluate(async (msgId) => {
-            const msg =
-                window.require('WAWebCollections').Msg.get(msgId) ||
-                (
-                    await window
-                        .require('WAWebCollections')
-                        .Msg.getMessagesById([msgId])
-                )?.messages?.[0];
+            const msg = await window.WWebJS.getMsgById(msgId);
+            if (!msg) return;
             if (window.require('WAWebMsgActionCapability').canStarMsg(msg)) {
                 let chat = await window
                     .require('WAWebCollections')
@@ -760,23 +736,33 @@ class Message extends Base {
      */
     async getInfo() {
         const info = await this.client.pupPage.evaluate(async (msgId) => {
-            const msg =
-                window.require('WAWebCollections').Msg.get(msgId) ||
-                (
-                    await window
-                        .require('WAWebCollections')
-                        .Msg.getMessagesById([msgId])
-                )?.messages?.[0];
+            const msg = await window.WWebJS.getMsgById(msgId);
             if (!msg || !msg.id.fromMe) return null;
 
             return new Promise((resolve) => {
                 setTimeout(
                     async () => {
-                        resolve(
-                            await window
-                                .require('WAWebApiMessageInfoStore')
-                                .queryMsgInfo(msg.id),
-                        );
+                        try {
+                            resolve(
+                                await window.WWebJS.withTimeout(
+                                    window
+                                        .require('WAWebApiMessageInfoStore')
+                                        .queryMsgInfo(msg.id),
+                                    10000,
+                                    'getInfo.queryMsgInfo',
+                                ),
+                            );
+                        } catch (error) {
+                            window.WWebJS.logDiagnostic(
+                                'getInfo.queryMsgInfo.error',
+                                {
+                                    msgId,
+                                    name: error?.name,
+                                    message: error?.message,
+                                },
+                            );
+                            resolve(null);
+                        }
                     },
                     (Date.now() - msg.t * 1000 < 1250 &&
                         Math.floor(Math.random() * (1200 - 1100 + 1)) + 1100) ||
@@ -815,17 +801,11 @@ class Message extends Base {
     async getPayment() {
         if (this.type === MessageTypes.PAYMENT) {
             const msg = await this.client.pupPage.evaluate(async (msgId) => {
-                const msg =
-                    window.require('WAWebCollections').Msg.get(msgId) ||
-                    (
-                        await window
-                            .require('WAWebCollections')
-                            .Msg.getMessagesById([msgId])
-                    )?.messages?.[0];
+                const msg = await window.WWebJS.getMsgById(msgId);
                 if (!msg) return null;
                 return msg.serialize();
             }, this.id._serialized);
-            return new Payment(this.client, msg);
+            return msg ? new Payment(this.client, msg) : undefined;
         }
         return undefined;
     }
@@ -909,13 +889,7 @@ class Message extends Base {
         }
         const messageEdit = await this.client.pupPage.evaluate(
             async (msgId, message, options) => {
-                const msg =
-                    window.require('WAWebCollections').Msg.get(msgId) ||
-                    (
-                        await window
-                            .require('WAWebCollections')
-                            .Msg.getMessagesById([msgId])
-                    )?.messages?.[0];
+                const msg = await window.WWebJS.getMsgById(msgId);
                 if (!msg) return null;
 
                 let canEdit =
@@ -958,13 +932,7 @@ class Message extends Base {
 
         const edittedEventMsg = await this.client.pupPage.evaluate(
             async (msgId, editedEventObject) => {
-                const msg =
-                    window.require('WAWebCollections').Msg.get(msgId) ||
-                    (
-                        await window
-                            .require('WAWebCollections')
-                            .Msg.getMessagesById([msgId])
-                    )?.messages?.[0];
+                const msg = await window.WWebJS.getMsgById(msgId);
                 if (!msg) return null;
 
                 const { name, startTimeTs, eventSendOptions } =
@@ -982,9 +950,9 @@ class Message extends Base {
                 await window
                     .require('WAWebSendEventEditMsgAction')
                     .sendEventEditMessage(eventOptions, msg);
-                const editedMsg = window
-                    .require('WAWebCollections')
-                    .Msg.get(msg.id._serialized);
+                const editedMsg = await window.WWebJS.getMsgById(
+                    msg.id._serialized,
+                );
                 return editedMsg?.serialize();
             },
             this.id._serialized,
@@ -1016,13 +984,7 @@ class Message extends Base {
                 if (!messageId) return null;
                 if (!Array.isArray(votes)) votes = [votes];
                 let localIdSet = new Set();
-                const msg =
-                    window.require('WAWebCollections').Msg.get(messageId) ||
-                    (
-                        await window
-                            .require('WAWebCollections')
-                            .Msg.getMessagesById([messageId])
-                    )?.messages?.[0];
+                const msg = await window.WWebJS.getMsgById(messageId);
                 if (!msg) return null;
 
                 msg.pollOptions.forEach((a) => {

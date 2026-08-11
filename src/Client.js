@@ -1234,7 +1234,8 @@ class Client extends EventEmitter {
                             const parentMsgKey = reaction.reactionParentKey;
                             const timestamp = reaction.reactionTimestamp / 1000;
                             const sender = reaction.author ?? reaction.from;
-                            const senderUserJid = sender._serialized;
+                            const senderUserJid =
+                                window.WWebJS.getSerializedId(sender);
 
                             return {
                                 ...reaction,
@@ -1262,17 +1263,12 @@ class Client extends EventEmitter {
                             const parentMsgKey = vote.pollUpdateParentKey;
                             const timestamp = vote.t / 1000;
                             const sender = vote.author ?? vote.from;
-                            const senderUserJid = sender._serialized;
+                            const senderUserJid =
+                                window.WWebJS.getSerializedId(sender);
 
-                            let parentMessage = Msg.get(
-                                parentMsgKey._serialized,
+                            let parentMessage = await window.WWebJS.getMsgById(
+                                window.WWebJS.getSerializedId(parentMsgKey),
                             );
-                            if (!parentMessage) {
-                                const fetched = await Msg.getMessagesById([
-                                    parentMsgKey._serialized,
-                                ]);
-                                parentMessage = fetched?.messages?.[0] || null;
-                            }
 
                             return {
                                 ...vote,
@@ -1628,13 +1624,7 @@ class Client extends EventEmitter {
         await this.pupPage.evaluate(
             async (messageId, reaction) => {
                 if (!messageId) return null;
-                const msg =
-                    window.require('WAWebCollections').Msg.get(messageId) ||
-                    (
-                        await window
-                            .require('WAWebCollections')
-                            .Msg.getMessagesById([messageId])
-                    )?.messages?.[0];
+                const msg = await window.WWebJS.getMsgById(messageId);
                 if (!msg) return null;
                 await window
                     .require('WAWebSendReactionMsgAction')
@@ -1800,7 +1790,7 @@ class Client extends EventEmitter {
             return window.WWebJS.getContact(contactId);
         }, contactId);
 
-        return ContactFactory.create(this, contact);
+        return contact ? ContactFactory.create(this, contact) : undefined;
     }
 
     /**
@@ -1810,18 +1800,11 @@ class Client extends EventEmitter {
      */
     async getMessageById(messageId) {
         const msg = await this.pupPage.evaluate(async (messageId) => {
-            let msg = window.require('WAWebCollections').Msg.get(messageId);
-            if (msg) return window.WWebJS.getMessageModel(msg);
-
             const params = messageId.split('_');
             if (params.length !== 3 && params.length !== 4)
                 throw new Error('Invalid serialized message id specified');
 
-            let messagesObject = await window
-                .require('WAWebCollections')
-                .Msg.getMessagesById([messageId]);
-            if (messagesObject && messagesObject.messages.length)
-                msg = messagesObject.messages[0];
+            const msg = await window.WWebJS.getMsgById(messageId);
 
             if (msg) return window.WWebJS.getMessageModel(msg);
         }, messageId);
@@ -1852,12 +1835,9 @@ class Client extends EventEmitter {
                 await Promise.all(
                     msgs
                         .filter((msg) => msg.pinType == 1)
-                        .map(async (msg) => {
-                            const res = await window
-                                .require('WAWebCollections')
-                                .Msg.getMessagesById([msg.parentMsgKey]);
-                            return res?.messages?.[0];
-                        }),
+                        .map((msg) =>
+                            window.WWebJS.getMsgById(msg.parentMsgKey),
+                        ),
                 )
             ).filter(Boolean);
 
@@ -2859,13 +2839,7 @@ class Client extends EventEmitter {
                 .Status.getMyStatus();
             if (!status) return;
 
-            const msg =
-                window.require('WAWebCollections').Msg.get(msgId) ||
-                (
-                    await window
-                        .require('WAWebCollections')
-                        .Msg.getMessagesById([msgId])
-                )?.messages?.[0];
+            const msg = await window.WWebJS.getMsgById(msgId);
             if (!msg) return;
 
             if (!msg.id.fromMe || !msg.id.remote.isStatus())
@@ -3290,13 +3264,7 @@ class Client extends EventEmitter {
 
         return await this.pupPage.evaluate(
             async (response, msgId) => {
-                const eventMsg =
-                    window.require('WAWebCollections').Msg.get(msgId) ||
-                    (
-                        await window
-                            .require('WAWebCollections')
-                            .Msg.getMessagesById([msgId])
-                    )?.messages?.[0];
+                const eventMsg = await window.WWebJS.getMsgById(msgId);
                 if (!eventMsg) return false;
 
                 await window

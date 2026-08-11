@@ -55,13 +55,8 @@ class InterfaceController {
      */
     async openChatWindowAt(msgId) {
         await this.pupPage.evaluate(async (msgId) => {
-            const msg =
-                window.require('WAWebCollections').Msg.get(msgId) ||
-                (
-                    await window
-                        .require('WAWebCollections')
-                        .Msg.getMessagesById([msgId])
-                )?.messages?.[0];
+            const msg = await window.WWebJS.getMsgById(msgId);
+            if (!msg) return;
             const chat =
                 window.require('WAWebCollections').Chat.get(msg.id.remote) ??
                 (await window
@@ -82,13 +77,8 @@ class InterfaceController {
      */
     async openMessageDrawer(msgId) {
         await this.pupPage.evaluate(async (msgId) => {
-            const msg =
-                window.require('WAWebCollections').Msg.get(msgId) ||
-                (
-                    await window
-                        .require('WAWebCollections')
-                        .Msg.getMessagesById([msgId])
-                )?.messages?.[0];
+            const msg = await window.WWebJS.getMsgById(msgId);
+            if (!msg) return;
             await window.require('WAWebCmd').Cmd.msgInfoDrawer(msg);
         }, msgId);
     }

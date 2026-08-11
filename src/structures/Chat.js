@@ -19,7 +19,7 @@ class Chat extends Base {
          * ID that represents the chat
          * @type {object}
          */
-        this.id = data.id;
+        this.id = Base._normalizeId(data.id);
 
         /**
          * Title of the chat
@@ -224,9 +224,16 @@ class Chat extends Base {
 
                 if (searchOptions && searchOptions.limit > 0) {
                     while (msgs.length < searchOptions.limit) {
-                        const loadedMessages = await window
-                            .require('WAWebChatLoadMessages')
-                            .loadEarlierMsgs({ chat });
+                        let loadedMessages;
+                        try {
+                            loadedMessages = await window
+                                .require('WAWebChatLoadMessages')
+                                .loadEarlierMsgs({ chat, searchOptions });
+                        } catch (ignoredError) {
+                            loadedMessages = await window
+                                .require('WAWebChatLoadMessages')
+                                .loadEarlierMsgs({ chat });
+                        }
                         if (!loadedMessages || !loadedMessages.length) break;
                         msgs = [...loadedMessages.filter(msgFilter), ...msgs];
                     }
