@@ -351,6 +351,8 @@ exports.LoadUtils = () => {
             options.mediaUploadTimeoutMs || mediaTimeoutMs;
         const mediaPrepTimeoutMs =
             options.mediaPrepTimeoutMs || Math.min(mediaTimeoutMs, 60000);
+        const mediaProcessTimeoutMs =
+            mediaPrepTimeoutMs + mediaUploadTimeoutMs + 10000;
         const messageTimeoutMs = options.messageSendTimeoutMs || 120000;
         delete options.mediaSendTimeoutMs;
         delete options.mediaUploadTimeoutMs;
@@ -366,6 +368,7 @@ exports.LoadUtils = () => {
             mediaTimeoutMs,
             mediaUploadTimeoutMs,
             mediaPrepTimeoutMs,
+            mediaProcessTimeoutMs,
             messageTimeoutMs,
             sendMediaAsDocument: !!options.sendMediaAsDocument,
             waitUntilMsgSent: !!options.waitUntilMsgSent,
@@ -401,7 +404,7 @@ exports.LoadUtils = () => {
                               mediaPrepTimeoutMs,
                               mediaUploadTimeoutMs,
                           }),
-                          mediaTimeoutMs,
+                          mediaProcessTimeoutMs,
                           'processMediaData',
                       );
             logDiagnostic('sendMessage.media.processed', {
