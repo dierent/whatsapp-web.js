@@ -251,9 +251,14 @@ exports.LoadUtils = () => {
             options.mediaSendTimeoutMs ||
             options.mediaUploadTimeoutMs ||
             120000;
+        const mediaUploadTimeoutMs =
+            options.mediaUploadTimeoutMs || mediaTimeoutMs;
+        const mediaPrepTimeoutMs =
+            options.mediaPrepTimeoutMs || Math.min(mediaTimeoutMs, 60000);
         const messageTimeoutMs = options.messageSendTimeoutMs || 120000;
         delete options.mediaSendTimeoutMs;
         delete options.mediaUploadTimeoutMs;
+        delete options.mediaPrepTimeoutMs;
         delete options.messageSendTimeoutMs;
 
         let mediaOptions = {};
@@ -281,6 +286,8 @@ exports.LoadUtils = () => {
                               forceMediaHd: options.sendMediaAsHd,
                               sendToChannel: isChannel,
                               sendToStatus: isStatus,
+                              mediaPrepTimeoutMs,
+                              mediaUploadTimeoutMs,
                           }),
                           mediaTimeoutMs,
                           'processMediaData',
@@ -845,6 +852,8 @@ exports.LoadUtils = () => {
             forceMediaHd,
             sendToChannel,
             sendToStatus,
+            mediaPrepTimeoutMs = 60000,
+            mediaUploadTimeoutMs = 120000,
         },
     ) => {
         const file = window.WWebJS.mediaInfoToFile(mediaInfo);
@@ -868,6 +877,8 @@ exports.LoadUtils = () => {
             forceDocument,
             sendToChannel,
             sendToStatus,
+            mediaPrepTimeoutMs,
+            mediaUploadTimeoutMs,
         });
 
         if (forceMediaHd && file.type.indexOf('image/') === 0) {
@@ -879,7 +890,7 @@ exports.LoadUtils = () => {
             .prepRawMedia(opaqueData, mediaParams);
         const mediaData = await withTimeout(
             mediaPrep.waitForPrep(),
-            60000,
+            mediaPrepTimeoutMs,
             'processMediaData.waitForPrep',
         );
         logDiagnostic('processMediaData.prep.complete', {
@@ -948,11 +959,20 @@ exports.LoadUtils = () => {
         const { uploadMedia, uploadUnencryptedMedia } = window.require(
             'WAWebMediaMmsV4Upload',
         );
+        logDiagnostic('processMediaData.upload.start', {
+            mimetype: mediaData.mimetype,
+            filehash: mediaObject.filehash,
+            mediaType,
+            uploadTimeoutMs: mediaUploadTimeoutMs,
+            uploadMethod: sendToChannel
+                ? 'uploadUnencryptedMedia'
+                : 'uploadMedia',
+        });
         const uploadedMedia = await withTimeout(
             !sendToChannel
                 ? uploadMedia(dataToUpload)
                 : uploadUnencryptedMedia(dataToUpload),
-            120000,
+            mediaUploadTimeoutMs,
             sendToChannel
                 ? 'processMediaData.uploadUnencryptedMedia'
                 : 'processMediaData.uploadMedia',
