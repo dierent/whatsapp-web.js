@@ -1427,6 +1427,10 @@ class Client extends EventEmitter {
      * @property {string[]} [stickerCategories=undefined] - Sets the categories of the sticker, (if sendMediaAsSticker is true). Provide emoji char array, can be null.
      * @property {boolean} [ignoreQuoteErrors = true] - Should the bot send a quoted message without the quoted message if it fails to get the quote?
      * @property {boolean} [waitUntilMsgSent = false] - Should the bot wait for the message send result?
+     * @property {number} [mediaSendTimeoutMs] - Timeout for media processing before sending
+     * @property {number} [mediaUploadTimeoutMs] - Timeout for WhatsApp media upload
+     * @property {number} [mediaPrepTimeoutMs] - Timeout for WhatsApp media preparation
+     * @property {number} [messageSendTimeoutMs] - Timeout for WhatsApp message send confirmation
      * @property {MessageMedia} [media] - Media to be sent
      * @property {any} [extra] - Extra options
      */
@@ -1524,6 +1528,10 @@ class Client extends EventEmitter {
             invokedBotWid: options.invokedBotWid,
             ignoreQuoteErrors: options.ignoreQuoteErrors !== false,
             waitUntilMsgSent: options.waitUntilMsgSent || false,
+            mediaSendTimeoutMs: options.mediaSendTimeoutMs,
+            mediaUploadTimeoutMs: options.mediaUploadTimeoutMs,
+            mediaPrepTimeoutMs: options.mediaPrepTimeoutMs,
+            messageSendTimeoutMs: options.messageSendTimeoutMs,
             extraOptions: options.extra,
         };
 

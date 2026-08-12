@@ -1599,6 +1599,14 @@ declare namespace WAWebJS {
          * @default false
          */
         waitUntilMsgSent?: boolean;
+        /** Timeout for media processing before sending */
+        mediaSendTimeoutMs?: number;
+        /** Timeout for WhatsApp media upload */
+        mediaUploadTimeoutMs?: number;
+        /** Timeout for WhatsApp media preparation */
+        mediaPrepTimeoutMs?: number;
+        /** Timeout for WhatsApp message send confirmation */
+        messageSendTimeoutMs?: number;
     }
 
     /** Options for editing a message */
