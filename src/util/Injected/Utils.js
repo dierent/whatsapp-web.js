@@ -36,11 +36,25 @@ exports.LoadUtils = () => {
         }
     };
 
+    const getDiagnosticContext = () => {
+        try {
+            return window.__waMediaDiagnosticContext || {};
+        } catch (ignoredError) {
+            return {};
+        }
+    };
+
     const logDiagnostic = (stage, details = {}) => {
         if (!isDiagnosticLoggingEnabled()) return;
+        const context = getDiagnosticContext();
         let payload;
         try {
-            payload = JSON.stringify(details);
+            payload = JSON.stringify({
+                traceId: context.traceId || '',
+                taskId: context.taskId || '',
+                chatId: context.chatId || '',
+                ...details,
+            });
         } catch (ignoredError) {
             payload = '"[unserializable]"';
         }
@@ -241,6 +255,7 @@ exports.LoadUtils = () => {
     };
 
     window.WWebJS.sendMessage = async (chat, content, options = {}) => {
+        const sendStartedAt = Date.now();
         const { getIsNewsletter, getIsBroadcast } =
             window.require('WAWebChatGetters');
         const isChannel = getIsNewsletter(chat);
@@ -261,12 +276,28 @@ exports.LoadUtils = () => {
         delete options.mediaPrepTimeoutMs;
         delete options.messageSendTimeoutMs;
 
+        logDiagnostic('sendMessage.start', {
+            chatId: getSerializedId(chat.id),
+            contentType: typeof content,
+            hasMedia: !!options.media,
+            isChannel,
+            isStatus,
+            mediaTimeoutMs,
+            mediaUploadTimeoutMs,
+            mediaPrepTimeoutMs,
+            messageTimeoutMs,
+            sendMediaAsDocument: !!options.sendMediaAsDocument,
+            waitUntilMsgSent: !!options.waitUntilMsgSent,
+        });
+
         let mediaOptions = {};
         if (options.media) {
             logDiagnostic('sendMessage.media.start', {
                 chatId: getSerializedId(chat.id),
                 mimetype: options.media.mimetype,
                 filename: options.media.filename,
+                dataLength: options.media.data?.length || 0,
+                filesize: options.media.filesize || '',
                 sendMediaAsDocument: !!options.sendMediaAsDocument,
                 sendMediaAsSticker: !!options.sendMediaAsSticker,
             });
@@ -704,14 +735,42 @@ exports.LoadUtils = () => {
             return msg;
         }
 
+        logDiagnostic('sendMessage.message.created', {
+            chatId: getSerializedId(chat.id),
+            msgId: getSerializedId(newMsgKey),
+            newId,
+            type: message.type,
+            bodyType: typeof message.body,
+            mediaType: mediaOptions.type || '',
+            mimetype: mediaOptions.mimetype || '',
+            hasClientUrl: !!mediaOptions.clientUrl,
+            hasDirectPath: !!mediaOptions.directPath,
+            hasUploadhash: !!mediaOptions.uploadhash,
+        });
+
+        logDiagnostic('sendMessage.addAndSend.start', {
+            chatId: getSerializedId(chat.id),
+            msgId: getSerializedId(newMsgKey),
+            messageTimeoutMs,
+        });
         const [msgPromise, sendMsgResultPromise] = window
             .require('WAWebSendMsgChatAction')
             .addAndSendMsgToChat(chat, message);
+        logDiagnostic('sendMessage.addAndSend.promises', {
+            chatId: getSerializedId(chat.id),
+            msgId: getSerializedId(newMsgKey),
+            hasMsgPromise: !!msgPromise,
+            hasSendMsgResultPromise: !!sendMsgResultPromise,
+        });
         await withTimeout(
             msgPromise,
             messageTimeoutMs,
             'addAndSendMsgToChat.message',
         );
+        logDiagnostic('sendMessage.addAndSend.messageResolved', {
+            chatId: getSerializedId(chat.id),
+            msgId: getSerializedId(newMsgKey),
+        });
 
         if (options.waitUntilMsgSent) {
             await withTimeout(
@@ -719,6 +778,10 @@ exports.LoadUtils = () => {
                 messageTimeoutMs,
                 'addAndSendMsgToChat.result',
             );
+            logDiagnostic('sendMessage.addAndSend.resultResolved', {
+                chatId: getSerializedId(chat.id),
+                msgId: getSerializedId(newMsgKey),
+            });
         }
 
         const Msg = window.require('WAWebCollections').Msg;
@@ -740,7 +803,11 @@ exports.LoadUtils = () => {
             fallbackMsg
                 ? 'sendMessage.returnMessage.fallback'
                 : 'sendMessage.returnMessage.notFound',
-            { msgId: newMsgKeyId, newId },
+            {
+                msgId: newMsgKeyId,
+                newId,
+                elapsedMs: Date.now() - sendStartedAt,
+            },
         );
         return fallbackMsg;
     };

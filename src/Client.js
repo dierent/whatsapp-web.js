@@ -1594,29 +1594,133 @@ class Client extends EventEmitter {
             );
         }
 
-        const sentMsg = await this.pupPage.evaluate(
-            async (chatId, content, options, sendSeen) => {
-                const chat = await window.WWebJS.getChat(chatId, {
-                    getAsModel: false,
-                });
+        const diagnosticContext =
+            (await this.pupPage
+                .evaluate(() => globalThis.__waMediaDiagnosticContext || {})
+                .catch(() => ({}))) || {};
+        console.warn(
+            `[whatsapp-web.js] Client.sendMessage.evaluate.start ${JSON.stringify(
+                {
+                    traceId: diagnosticContext.traceId || '',
+                    taskId: diagnosticContext.taskId || '',
+                    chatId,
+                    hasMedia: !!internalOptions.media,
+                    mimetype: internalOptions.media?.mimetype || '',
+                    filename: internalOptions.media?.filename || '',
+                    sendMediaAsDocument: !!internalOptions.sendMediaAsDocument,
+                    mediaSendTimeoutMs:
+                        internalOptions.mediaSendTimeoutMs || '',
+                    mediaUploadTimeoutMs:
+                        internalOptions.mediaUploadTimeoutMs || '',
+                    mediaPrepTimeoutMs:
+                        internalOptions.mediaPrepTimeoutMs || '',
+                    messageSendTimeoutMs:
+                        internalOptions.messageSendTimeoutMs || '',
+                },
+            )}`,
+        );
+        const evaluateStartedAt = Date.now();
+        let sentMsg;
+        try {
+            sentMsg = await this.pupPage.evaluate(
+                async (chatId, content, options, sendSeen) => {
+                    const getContext = () => {
+                        try {
+                            return globalThis.__waMediaDiagnosticContext || {};
+                        } catch (ignoredError) {
+                            return {};
+                        }
+                    };
+                    const logDiagnostic = (stage, details) => {
+                        const context = getContext();
+                        console.warn(
+                            `[whatsapp-web.js] ${stage} ${JSON.stringify({
+                                traceId: context.traceId || '',
+                                taskId: context.taskId || '',
+                                chatId: context.chatId || chatId || '',
+                                ...details,
+                            })}`,
+                        );
+                    };
+                    const startedAt = Date.now();
+                    logDiagnostic('Client.evaluate.start', {
+                        chatId,
+                        hasMedia: !!options.media,
+                        mimetype: options.media?.mimetype || '',
+                        filename: options.media?.filename || '',
+                        sendMediaAsDocument: !!options.sendMediaAsDocument,
+                    });
+                    const chat = await window.WWebJS.getChat(chatId, {
+                        getAsModel: false,
+                    });
+                    logDiagnostic('Client.evaluate.getChat.complete', {
+                        chatId,
+                        found: !!chat,
+                        elapsedMs: Date.now() - startedAt,
+                    });
 
-                if (!chat) return null;
+                    if (!chat) return null;
 
-                if (sendSeen) {
-                    await window.WWebJS.sendSeen(chatId);
-                }
+                    if (sendSeen) {
+                        logDiagnostic('Client.evaluate.sendSeen.start', {
+                            chatId,
+                            elapsedMs: Date.now() - startedAt,
+                        });
+                        await window.WWebJS.sendSeen(chatId);
+                        logDiagnostic('Client.evaluate.sendSeen.complete', {
+                            chatId,
+                            elapsedMs: Date.now() - startedAt,
+                        });
+                    }
 
-                const msg = await window.WWebJS.sendMessage(
-                    chat,
-                    content,
-                    options,
-                );
-                return msg ? window.WWebJS.getMessageModel(msg) : undefined;
-            },
-            chatId,
-            content,
-            internalOptions,
-            sendSeen,
+                    logDiagnostic('Client.evaluate.sendMessage.start', {
+                        chatId,
+                        elapsedMs: Date.now() - startedAt,
+                    });
+                    const msg = await window.WWebJS.sendMessage(
+                        chat,
+                        content,
+                        options,
+                    );
+                    logDiagnostic('Client.evaluate.sendMessage.complete', {
+                        chatId,
+                        hasMessage: !!msg,
+                        elapsedMs: Date.now() - startedAt,
+                    });
+                    return msg ? window.WWebJS.getMessageModel(msg) : undefined;
+                },
+                chatId,
+                content,
+                internalOptions,
+                sendSeen,
+            );
+        } catch (error) {
+            console.warn(
+                `[whatsapp-web.js] Client.sendMessage.evaluate.error ${JSON.stringify(
+                    {
+                        traceId: diagnosticContext.traceId || '',
+                        taskId: diagnosticContext.taskId || '',
+                        chatId,
+                        elapsedMs: Date.now() - evaluateStartedAt,
+                        name: error?.name || '',
+                        message: error?.message || String(error),
+                        stack: error?.stack || '',
+                    },
+                )}`,
+            );
+            throw error;
+        }
+        console.warn(
+            `[whatsapp-web.js] Client.sendMessage.evaluate.complete ${JSON.stringify(
+                {
+                    traceId: diagnosticContext.traceId || '',
+                    taskId: diagnosticContext.taskId || '',
+                    chatId,
+                    elapsedMs: Date.now() - evaluateStartedAt,
+                    hasMessage: !!sentMsg,
+                    messageId: sentMsg?.id?.id || '',
+                },
+            )}`,
         );
 
         return sentMsg ? new Message(this, sentMsg) : undefined;
