@@ -89,6 +89,13 @@ exports.LoadUtils = () => {
         });
     };
 
+    const safeMediaSummary = (mediaInfo = {}) => ({
+        mimetype: mediaInfo.mimetype || '',
+        filename: mediaInfo.filename || '',
+        dataLength: mediaInfo.data?.length || 0,
+        filesize: mediaInfo.filesize || '',
+    });
+
     window.WWebJS.getSerializedId = getSerializedId;
     window.WWebJS.normalizeId = normalizeId;
     window.WWebJS.logDiagnostic = logDiagnostic;
@@ -923,12 +930,56 @@ exports.LoadUtils = () => {
             mediaUploadTimeoutMs = 120000,
         },
     ) => {
-        const file = window.WWebJS.mediaInfoToFile(mediaInfo);
-        const OpaqueData = window.require('WAWebMediaOpaqueData');
-        const opaqueData = await OpaqueData.createFromData(
-            file,
-            mediaInfo.mimetype,
+        const startedAt = Date.now();
+        const opaqueDataTimeoutMs = Math.min(
+            mediaPrepTimeoutMs || mediaUploadTimeoutMs || 60000,
+            60000,
         );
+        logDiagnostic('processMediaData.entry', {
+            ...safeMediaSummary(mediaInfo),
+            forceSticker,
+            forceGif,
+            forceVoice,
+            forceDocument,
+            sendToChannel,
+            sendToStatus,
+            mediaPrepTimeoutMs,
+            mediaUploadTimeoutMs,
+            opaqueDataTimeoutMs,
+        });
+
+        logDiagnostic('processMediaData.mediaInfoToFile.start', {
+            ...safeMediaSummary(mediaInfo),
+        });
+        const file = window.WWebJS.mediaInfoToFile(mediaInfo);
+        logDiagnostic('processMediaData.mediaInfoToFile.complete', {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            elapsedMs: Date.now() - startedAt,
+        });
+
+        logDiagnostic('processMediaData.opaqueData.require.start');
+        const OpaqueData = window.require('WAWebMediaOpaqueData');
+        logDiagnostic('processMediaData.opaqueData.require.complete', {
+            hasCreateFromData: typeof OpaqueData?.createFromData === 'function',
+            elapsedMs: Date.now() - startedAt,
+        });
+
+        logDiagnostic('processMediaData.opaqueData.create.start', {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            timeoutMs: opaqueDataTimeoutMs,
+        });
+        const opaqueData = await withTimeout(
+            OpaqueData.createFromData(file, mediaInfo.mimetype),
+            opaqueDataTimeoutMs,
+            'processMediaData.opaqueData.createFromData',
+        );
+        logDiagnostic('processMediaData.opaqueData.create.complete', {
+            elapsedMs: Date.now() - startedAt,
+        });
         const mediaParams = {
             asSticker: forceSticker,
             asGif: forceGif,
@@ -946,6 +997,7 @@ exports.LoadUtils = () => {
             sendToStatus,
             mediaPrepTimeoutMs,
             mediaUploadTimeoutMs,
+            elapsedMs: Date.now() - startedAt,
         });
 
         if (forceMediaHd && file.type.indexOf('image/') === 0) {
@@ -955,6 +1007,11 @@ exports.LoadUtils = () => {
         const mediaPrep = window
             .require('WAWebPrepRawMedia')
             .prepRawMedia(opaqueData, mediaParams);
+        logDiagnostic('processMediaData.prep.start', {
+            mediaParams,
+            timeoutMs: mediaPrepTimeoutMs,
+            elapsedMs: Date.now() - startedAt,
+        });
         const mediaData = await withTimeout(
             mediaPrep.waitForPrep(),
             mediaPrepTimeoutMs,
@@ -965,6 +1022,7 @@ exports.LoadUtils = () => {
             mimetype: mediaData.mimetype,
             filehash: mediaData.filehash,
             size: mediaData.size,
+            elapsedMs: Date.now() - startedAt,
         });
         const mediaObject = window
             .require('WAWebMediaStorage')
@@ -989,10 +1047,23 @@ exports.LoadUtils = () => {
         }
 
         if (!(mediaData.mediaBlob instanceof OpaqueData)) {
-            mediaData.mediaBlob = await OpaqueData.createFromData(
-                mediaData.mediaBlob,
-                mediaData.mediaBlob.type,
+            logDiagnostic('processMediaData.mediaBlob.rewrap.start', {
+                blobType: mediaData.mediaBlob?.type || '',
+                blobSize: mediaData.mediaBlob?.size || '',
+                timeoutMs: opaqueDataTimeoutMs,
+                elapsedMs: Date.now() - startedAt,
+            });
+            mediaData.mediaBlob = await withTimeout(
+                OpaqueData.createFromData(
+                    mediaData.mediaBlob,
+                    mediaData.mediaBlob.type,
+                ),
+                opaqueDataTimeoutMs,
+                'processMediaData.mediaBlob.createFromData',
             );
+            logDiagnostic('processMediaData.mediaBlob.rewrap.complete', {
+                elapsedMs: Date.now() - startedAt,
+            });
         }
 
         mediaData.renderableUrl = mediaData.mediaBlob.url();
@@ -1059,6 +1130,7 @@ exports.LoadUtils = () => {
             hasMmsUrl: !!mediaEntry.mmsUrl,
             hasDirectPath: !!mediaEntry.directPath,
             hasUploadHash: !!mediaEntry.uploadHash,
+            elapsedMs: Date.now() - startedAt,
         });
 
         mediaData.set({
