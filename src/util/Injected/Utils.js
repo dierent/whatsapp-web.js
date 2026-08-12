@@ -96,6 +96,80 @@ exports.LoadUtils = () => {
         filesize: mediaInfo.filesize || '',
     });
 
+    const getUploadPromiseCount = (mediaObject) => {
+        try {
+            return typeof mediaObject?.getUploadPromises === 'function'
+                ? mediaObject.getUploadPromises().length
+                : '';
+        } catch (error) {
+            return `error:${error?.message || String(error)}`;
+        }
+    };
+
+    const getMms4UploadHosts = () => {
+        try {
+            const raw = window.localStorage?.getItem('WAMms4Conn');
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return (parsed.hosts || [])
+                .filter((host) =>
+                    (host.rules || []).some((rule) =>
+                        Array.isArray(rule.upload),
+                    ),
+                )
+                .map((host) => ({
+                    hostname: host.hostname || '',
+                    type: host.type || '',
+                    fallbackHostname: host.fallback?.hostname || '',
+                    uploadTypes: (host.rules || [])
+                        .flatMap((rule) => rule.upload || [])
+                        .slice(0, 40),
+                }))
+                .slice(0, 12);
+        } catch (error) {
+            return [{ error: error?.message || String(error) }];
+        }
+    };
+
+    const getMediaObjectSummary = (mediaObject) => ({
+        filehash: mediaObject?.filehash || '',
+        type: mediaObject?.type || '',
+        size: mediaObject?.size || '',
+        hasMediaBlob: Boolean(mediaObject?.mediaBlob),
+        mediaBlobType: mediaObject?.mediaBlob?.type || '',
+        mediaBlobSize: mediaObject?.mediaBlob?.size || '',
+        hasMediaBlobFormData:
+            typeof mediaObject?.mediaBlob?.formData === 'function',
+        uploadPromiseCount: getUploadPromiseCount(mediaObject),
+    });
+
+    const withUploadTimeout = (promise, timeoutMs, stage, cancelUpload) => {
+        if (!timeoutMs || timeoutMs <= 0) return promise;
+
+        let timeoutId;
+        const timeoutPromise = new Promise((resolve, reject) => {
+            timeoutId = setTimeout(() => {
+                let cancelResult = 'not-run';
+                try {
+                    cancelUpload?.();
+                    cancelResult = 'called';
+                } catch (error) {
+                    cancelResult = `error:${error?.message || String(error)}`;
+                }
+                logDiagnostic('timeout', { stage, timeoutMs, cancelResult });
+                const error = new Error(
+                    `WhatsApp Web internal operation timed out: stage=${stage}, timeoutMs=${timeoutMs}`,
+                );
+                error.name = 'WWebJSTimeoutError';
+                reject(error);
+            }, timeoutMs);
+        });
+
+        return Promise.race([promise, timeoutPromise]).finally(() => {
+            clearTimeout(timeoutId);
+        });
+    };
+
     window.WWebJS.getSerializedId = getSerializedId;
     window.WWebJS.normalizeId = normalizeId;
     window.WWebJS.logDiagnostic = logDiagnostic;
@@ -1094,42 +1168,55 @@ exports.LoadUtils = () => {
                 : {}),
         };
 
-        const { uploadMedia, uploadUnencryptedMedia } = window.require(
-            'WAWebMediaMmsV4Upload',
-        );
+        const { cancelUploadMedia, uploadMedia, uploadUnencryptedMedia } =
+            window.require('WAWebMediaMmsV4Upload');
         logDiagnostic('processMediaData.upload.start', {
             mimetype: mediaData.mimetype,
-            filehash: mediaObject.filehash,
+            ...getMediaObjectSummary(mediaObject),
             mediaType,
             uploadTimeoutMs: mediaUploadTimeoutMs,
             uploadMethod: sendToChannel
                 ? 'uploadUnencryptedMedia'
                 : 'uploadMedia',
+            uploadHosts: getMms4UploadHosts(),
         });
-        const uploadedMedia = await withTimeout(
-            !sendToChannel
-                ? uploadMedia(dataToUpload)
-                : uploadUnencryptedMedia(dataToUpload),
+        const uploadPromise = !sendToChannel
+            ? uploadMedia(dataToUpload)
+            : uploadUnencryptedMedia(dataToUpload);
+        logDiagnostic('processMediaData.upload.promiseCreated', {
+            ...getMediaObjectSummary(mediaObject),
+            elapsedMs: Date.now() - startedAt,
+        });
+        const uploadedMedia = await withUploadTimeout(
+            uploadPromise,
             mediaUploadTimeoutMs,
             sendToChannel
                 ? 'processMediaData.uploadUnencryptedMedia'
                 : 'processMediaData.uploadMedia',
+            () => {
+                if (!sendToChannel && typeof cancelUploadMedia === 'function') {
+                    cancelUploadMedia(mediaObject);
+                }
+            },
         );
 
         const mediaEntry = uploadedMedia.mediaEntry;
         if (!mediaEntry) {
             logDiagnostic('processMediaData.upload.noMediaEntry', {
                 mimetype: mediaData.mimetype,
-                filehash: mediaObject.filehash,
+                ...getMediaObjectSummary(mediaObject),
             });
             throw new Error('upload failed: media entry was not created');
         }
         logDiagnostic('processMediaData.upload.complete', {
             mimetype: mediaData.mimetype,
-            filehash: mediaObject.filehash,
+            ...getMediaObjectSummary(mediaObject),
             hasMmsUrl: !!mediaEntry.mmsUrl,
+            hasDeprecatedMms3Url: !!mediaEntry.deprecatedMms3Url,
             hasDirectPath: !!mediaEntry.directPath,
             hasUploadHash: !!mediaEntry.uploadHash,
+            hasEncFilehash: !!mediaEntry.encFilehash,
+            kind: uploadedMedia.kind || '',
             elapsedMs: Date.now() - startedAt,
         });
 
